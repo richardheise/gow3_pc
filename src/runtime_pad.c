@@ -103,9 +103,27 @@ static void play_click(PadData *d) {
     if (now>=down && now<up) d->buttons|=BTN_TOUCHPAD;
 }
 
+/* A fallback for the tested Windows DragonRise variant (12 buttons, 5 axes, one hat).
+ * Keep SDL's database and user-provided mappings when either already knows this GUID. */
+static void add_gamepad_fallbacks(void) {
+#ifdef _WIN32
+    char *mapping=SDL_GetGamepadMappingForGUID(SDL_StringToGUID("0300457e790000000600000000000000"));
+    if (mapping) { SDL_free(mapping); return; }
+    if (SDL_AddGamepadMapping(
+            "0300457e790000000600000000000000,DragonRise Inc. Generic USB Joystick,"
+            "a:b2,b:b1,x:b3,y:b0,back:b8,start:b9,"
+            "leftshoulder:b4,rightshoulder:b5,lefttrigger:b6,righttrigger:b7,"
+            "leftstick:b10,rightstick:b11,leftx:a0,lefty:a1,rightx:a2,righty:a4,"
+            "dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,platform:Windows,")<0)
+        printf("Runtime: DragonRise gamepad mapping failed: %s\n",SDL_GetError());
+#endif
+}
 /* Opens the first gamepad SDL knows about; called under lock. */
 static SDL_Gamepad *current_gamepad(void) {
-    if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
+    if (!sdl_ready) {
+        sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
+        if (sdl_ready>0) add_gamepad_fallbacks();
+    }
     if (sdl_ready<0) return NULL;
     if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
     if (!gamepad) {
@@ -474,6 +492,7 @@ static const char *label_name(SDL_GamepadButtonLabel label) {
 int runtime_pad_describe(void) {
     SDL_Gamepad *g=NULL;
     const bool ready=SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+    if (ready) add_gamepad_fallbacks();
     /* No event loop yet, so pads show up only after a pump: poll for about 300 ms. */
     for (int waited=0; ready && !g && waited<30; ++waited) {
         SDL_PumpEvents();
